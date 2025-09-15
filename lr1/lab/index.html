@@ -373,7 +373,7 @@
         <li class="md-nav__item">
   <a href="#_1" class="md-nav__link">
     <span class="md-ellipsis">
-      Авторизация и аутентификация
+      Основные компоненты
     </span>
   </a>
   
@@ -519,7 +519,7 @@
         <li class="md-nav__item">
   <a href="#_1" class="md-nav__link">
     <span class="md-ellipsis">
-      Авторизация и аутентификация
+      Основные компоненты
     </span>
   </a>
   
@@ -620,7 +620,7 @@
         <li class="md-nav__item">
   <a href="#_1" class="md-nav__link">
     <span class="md-ellipsis">
-      Авторизация и аутентификация
+      Основные компоненты
     </span>
   </a>
   
@@ -721,7 +721,7 @@
         <li class="md-nav__item">
   <a href="#_1" class="md-nav__link">
     <span class="md-ellipsis">
-      Авторизация и аутентификация
+      Основные компоненты
     </span>
   </a>
   
@@ -867,7 +867,7 @@
         <li class="md-nav__item">
   <a href="#_1" class="md-nav__link">
     <span class="md-ellipsis">
-      Авторизация и аутентификация
+      Основные компоненты
     </span>
   </a>
   
@@ -1015,7 +1015,7 @@
         <li class="md-nav__item">
   <a href="#_1" class="md-nav__link">
     <span class="md-ellipsis">
-      Авторизация и аутентификация
+      Основные компоненты
     </span>
   </a>
   
@@ -1093,7 +1093,7 @@
         <li class="md-nav__item">
   <a href="#_1" class="md-nav__link">
     <span class="md-ellipsis">
-      Авторизация и аутентификация
+      Основные компоненты
     </span>
   </a>
   
@@ -1146,89 +1146,127 @@
 <p><strong>Тема:</strong> Веб-приложение для обмена книгами между пользователями</p>
 <p><strong>Цель работы:</strong><br />
 Научиться строить полнофункциональное серверное приложение на FastAPI с использованием SQLModel/SQLAlchemy, Alembic-миграций, JWT-авторизации и CRUD-операций для модели данных с множественными связями.</p>
-<h2 id="_1">Авторизация и аутентификация</h2>
-<p><strong>Хеширование паролей</strong></p>
-<pre><code>def hash_password(plain_password: str) -&gt; str:
-    return pwd_ctx.hash(plain_password)
-def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
-    return pwd_ctx.verify(plain_password, hashed_password)
+<h2 id="_1">Основные компоненты</h2>
+<p><strong>Конфигурация (core/config.py)</strong></p>
+<pre><code>import os
+from pydantic_settings import BaseSettings
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+class Settings(BaseSettings):
+    DATABASE_URL: str = os.getenv(&quot;DATABASE_URL&quot;, &quot;postgresql://postgres:2548@localhost:5432/book_exchange&quot;)
+    SECRET_KEY: str = os.getenv(&quot;SECRET_KEY&quot;, &quot;supersecretkey&quot;)
+    ALGORITHM: str = &quot;HS256&quot;
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+
+
+settings = Settings()
 </code></pre>
-<p><strong>Генерация и валидация JWT</strong></p>
-<pre><code>import jwt
+<p><strong>База данных (core/database.py)</strong></p>
+<pre><code>from sqlalchemy.orm import sessionmaker
+from sqlmodel import SQLModel, create_engine, Session
+from app.core.config import settings
+
+engine = create_engine(settings.DATABASE_URL, echo=True, future=True)
+
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def get_session():
+    with Session(engine) as session:
+        yield session
+
+
+def init_db():
+    import app.models.user
+    import app.models.book
+    import app.models.exchange_request
+    import app.models.user_book
+    import app.models.exchange_status_history
+    SQLModel.metadata.create_all(engine)
+</code></pre>
+<p><strong>Безопасность (core/security.py)</strong></p>
+<pre><code>from passlib.context import CryptContext
+from jose import JWTError, jwt
 from datetime import datetime, timedelta
-from typing import Dict, Optional
-def create_access_token(data: Dict[str, object], expires_delta: Optional[timedelta] = None) -&gt; str:
+from app.core.config import settings
+from typing import Optional
+
+pwd_context = CryptContext(schemes=[&quot;bcrypt&quot;], deprecated=&quot;auto&quot;)
+
+
+def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -&gt; str:
+    return pwd_context.hash(password)
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -&gt; str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({&quot;exp&quot;: expire})
-    return jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm)
-def decode_access_token(token: str) -&gt; Optional[Dict[str, object]]:
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return encoded_jwt
+
+
+def decode_access_token(token: str):
     try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-    except jwt.PyJWTError:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return payload
+    except JWTError:
         return None
 </code></pre>
-<p>В полезную нагрузку (data) мы кладём {"user_id": profile.id}.
-exp гарантирует автоматическую просрочку токена.
-<strong>Эндпоинты регистрации и входа</strong></p>
-<pre><code>router = APIRouter(prefix=&quot;/auth&quot;, tags=[&quot;auth&quot;])
-@router.post(&quot;/register&quot;, response_model=schemas.ProfileRead)
-def register(reg: schemas.Register, db: Session = Depends(get_session)):
-    if crud.get_profile_by_email(db, reg.email):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, &quot;Email already registered&quot;)
-    return crud.create_profile(db, reg)
-@router.post(&quot;/login&quot;, response_model=schemas.Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_session)):
-    prof = crud.authenticate_profile(db, form_data.username, form_data.password)
-    if not prof:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, &quot;Invalid credentials&quot;)
-    token = crud.create_access_token_for_user(prof)
-    return {&quot;access_token&quot;: token, &quot;token_type&quot;: &quot;bearer&quot;}
+<p><strong>Эндпоинты регистрации и входа</strong></p>
+<pre><code>router = APIRouter()
+
+@router.post(&quot;/register&quot;, response_model=UserRead)
+def register(user_in: UserCreate, db: Session = Depends(get_db)):
+    if get_user_by_username(db, user_in.username):
+        raise HTTPException(status_code=400, detail=&quot;Username already registered&quot;)
+    if get_user_by_email(db, user_in.email):
+        raise HTTPException(status_code=400, detail=&quot;Email already registered&quot;)
+    user = create_user(db, user_in)
+    return user
+
+
+@router.post(&quot;/login&quot;, response_model=Token)
+def login(login_data: UserLogin, db: Session = Depends(get_db)):
+    user = get_user_by_email(db, login_data.email)
+    if not user or not verify_password(login_data.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail=&quot;Incorrect email or password&quot;)
+    access_token = create_access_token(data={&quot;sub&quot;: user.email})
+    return {&quot;access_token&quot;: access_token, &quot;token_type&quot;: &quot;bearer&quot;}
 </code></pre>
 <h2 id="_2">Модель данных</h2>
 <p><strong>Основные сущности</strong></p>
 <ol>
 <li>
-<p>Profile — профиль пользователя</p>
+<p>User — профиль пользователя</p>
 </li>
 <li>
-<p>BookInfo — информация о книге (title, author, genre, …)</p>
+<p>Book — информация о книге (title, author, genre, …)</p>
 </li>
 <li>
-<p>Book — экземпляр книги в библиотеке пользователя</p>
+<p>ExchangeRequest — запрос на обмен</p>
 </li>
 <li>
-<p>Tag — метки/жанры для BookInfo</p>
-</li>
-<li>
-<p>ShareRequest — запрос на обмен книгами между двумя пользователями</p>
+<p>ExchangeStatusHistory — история обменов пользователей</p>
 </li>
 </ol>
-<p><strong>Ассоциативная таблица</strong></p>
-<pre><code>class BookTagLink(SQLModel, table=True):
-    info_id: Optional[int] = Field(
-        default=None, foreign_key=&quot;bookinfo.id&quot;, primary_key=True
-    )
-    tag_id: Optional[int] = Field(
-        default=None, foreign_key=&quot;tag.id&quot;, primary_key=True
-    )
-    added_at: datetime = Field(default_factory=datetime.utcnow)
-</code></pre>
 <h2 id="crud-">CRUD-эндпоинты</h2>
-<p><strong>Теги</strong></p>
-<pre><code>POST /books/tags — создать тег
-GET /books/tags — список
-PATCH /books/tags/{id} — обновить
-DELETE /books/tags/{id} — удалить
+<p><strong>Книги</strong></p>
+<pre><code>GET /books/ — получение списка всех книг
+POST /books/ — создание новой книги (требует аутентификации)
+GET /books/{book_id} — получение информации о книге
+PUT /books/{book_id} — обновление книги (только владелец)
+DELETE /books/{book_id} - удаление книги (только владелец)
+
 </code></pre>
-<p><strong>Информация о книге</strong></p>
-<pre><code>POST /books/info — добавить BookInfo с tag_ids
-GET /books/info — получить все с вложенными тегами
-GET /books/info/{id} — по id
-PATCH /books/info/{id} — обновить + смена тегов
-DELETE /books/info/{id} — удалить
-</code></pre>
-<p><strong>Экземпляры книг</strong></p>
+<p><strong>Пользователи</strong></p>
 <pre><code>POST /books/ — добавить книгу в свою библиотеку
 GET /books/ — список с фильтрами title, author, tag_id
 GET /books/{id} — по id
@@ -1236,20 +1274,18 @@ PATCH /books/{id} — изменить даты
 DELETE /books/{id} — удалить
 </code></pre>
 <p><strong>Запросы на обмен</strong></p>
-<pre><code>POST /share-requests/ — отправить запрос
-GET /share-requests/incoming — входящие
-GET /share-requests/outgoing — исходящие
-POST /share-requests/{id}/respond — принять/отклонить
-DELETE /share-requests/{id} — отменить свой запрос
+<pre><code>POST /exchanges/ — отправить запрос
+GET /exchanges/ - получение списка обменов пользователя
+GET /exchanges/incoming — входящие
+GET /exchanges/outgoing — исходящие
+PATCH /exchanges/{exchange_id}/status — принять/отклонить
+GET /exchanges/{exchange_id}/history — история обменов
 </code></pre>
 <p><strong>Пользователи</strong></p>
 <pre><code>GET /users/me — информация о текущем
 GET /users/ — список всех профилей
-GET /users/{id} — профиль по id
-PATCH /users/me — обновить свой профиль
-PATCH /users/change-password — сменить пароль
+GET /users/{user_id}/books - получение книг пользователя
 </code></pre>
-<p>Все эндпоинты, кроме /auth, защищены JWT-токеном через Depends(ReusableOAuth2).</p>
 <h2 id="alembic">Миграции Alembic</h2>
 <p>В alembic/env.py подключено:</p>
 <pre><code>from sqlmodel import SQLModel
