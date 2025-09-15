@@ -1,0 +1,29 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+
+# Local databases
+*.db
+*.sqlite3
+
+# IDE configs
+.idea/
+.vscode/
+
+# Logs and caches
+*.log
+*.cache
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+/docs
+/mkdocs.yml
