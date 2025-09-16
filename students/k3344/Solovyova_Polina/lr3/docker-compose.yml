@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # Основная база данных для приложения
+  book_exchange_db:
+    image: postgres:latest
+    container_name: book_exchange_db
+    environment:
+      POSTGRES_DB: book_exchange
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - book_exchange_data:/var/lib/postgresql/data
+      - ./init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # База данных для парсера
+  parser_db:
+    image: postgres:latest
+    container_name: parser_db
+    environment:
+      POSTGRES_DB: web_parsing
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - parser_data:/var/lib/postgresql/data
+      - ./init_parser_db.sql:/docker-entrypoint-initdb.d/init_parser_db.sql
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI приложение Book Exchange
+  book_exchange:
+    build: ./book_exchange
+    container_name: book_exchange
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@book_exchange_db:5432/book_exchange
+      PARSER_DB_HOST: parser
+      PARSER_DB_NAME: web_parsing
+      PARSER_DB_USER: postgres
+      PARSER_DB_PASSWORD: postgres
+      SECRET_KEY: your-secret-key-here
+    depends_on:
+      book_exchange_db:
+        condition: service_healthy
+      parser:
+        condition: service_healthy
+    volumes:
+      - ./book_exchange:/app
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # FastAPI парсер
+  parser:
+    build: ./parser
+    container_name: parser
+    ports:
+      - "8001:8000"
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  book_exchange_data:
+  parser_data:
+
+networks:
+  app-network:
+    driver: bridge
